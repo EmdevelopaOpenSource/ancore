@@ -12,6 +12,13 @@
 //! - Session key support
 //! - Upgradeable via proxy pattern
 //! - Multi-signature support
+//!
+//! ## Events
+//! This contract emits events for all state-changing operations to enable off-chain tracking:
+//! - `initialized`: Emitted when the account is initialized with the owner address
+//! - `executed`: Emitted when a transaction is executed with to, function, and nonce
+//! - `session_key_added`: Emitted when a session key is added with public_key and expires_at
+//! - `session_key_revoked`: Emitted when a session key is revoked with public_key
 
 use soroban_sdk::{
     contract, contractimpl, contracterror, contracttype, Address, BytesN, Env, Vec,
@@ -35,6 +42,35 @@ pub enum ContractError {
     SessionKeyExpired = 6,
     /// Insufficient permissions
     InsufficientPermission = 7,
+}
+
+/// Event topic naming convention
+mod events {
+    use soroban_sdk::{Env, Symbol};
+
+    /// Event emitted when the account is initialized.
+    /// Data: (owner: Address)
+    pub fn initialized(env: &Env) -> Symbol {
+        Symbol::new(env, "initialized")
+    }
+
+    /// Event emitted when a transaction is executed.
+    /// Data: (to: Address, function: Symbol, nonce: u64)
+    pub fn executed(env: &Env) -> Symbol {
+        Symbol::new(env, "executed")
+    }
+
+    /// Event emitted when a session key is added.
+    /// Data: (public_key: BytesN<32>, expires_at: u64)
+    pub fn session_key_added(env: &Env) -> Symbol {
+        Symbol::new(env, "session_key_added")
+    }
+
+    /// Event emitted when a session key is revoked.
+    /// Data: (public_key: BytesN<32>)
+    pub fn session_key_revoked(env: &Env) -> Symbol {
+        Symbol::new(env, "session_key_revoked")
+    }
 }
 
 #[contracttype]
@@ -65,6 +101,10 @@ impl AncoreAccount {
 
         env.storage().instance().set(&DataKey::Owner, &owner);
         env.storage().instance().set(&DataKey::Nonce, &0u64);
+
+        // Emit initialized event
+        env.events().publish((events::initialized(&env),), owner);
+
         Ok(())
     }
 
@@ -92,8 +132,8 @@ impl AncoreAccount {
     /// - Must validate signature
     pub fn execute(
         env: Env,
-        _to: Address,
-        _function: soroban_sdk::Symbol,
+        to: Address,
+        function: soroban_sdk::Symbol,
         _args: Vec<soroban_sdk::Val>,
     ) -> Result<bool, ContractError> {
         // TODO: Implement signature validation
@@ -104,9 +144,15 @@ impl AncoreAccount {
         let owner = Self::get_owner(env.clone())?;
         owner.require_auth();
 
-        // Increment nonce
+        // Get nonce before incrementing
         let current_nonce: u64 = Self::get_nonce(env.clone())?;
+
+        // Increment nonce
         env.storage().instance().set(&DataKey::Nonce, &(current_nonce + 1));
+
+        // Emit executed event with transaction details
+        env.events()
+            .publish((events::executed(&env),), (to, function, current_nonce));
 
         Ok(true)
     }
@@ -129,7 +175,12 @@ impl AncoreAccount {
 
         env.storage()
             .persistent()
-            .set(&DataKey::SessionKey(public_key), &session_key);
+            .set(&DataKey::SessionKey(public_key.clone()), &session_key);
+
+        // Emit session_key_added event
+        env.events()
+            .publish((events::session_key_added(&env),), (public_key, expires_at));
+
         Ok(())
     }
 
@@ -140,7 +191,12 @@ impl AncoreAccount {
 
         env.storage()
             .persistent()
-            .remove(&DataKey::SessionKey(public_key));
+            .remove(&DataKey::SessionKey(public_key.clone()));
+
+        // Emit session_key_revoked event
+        env.events()
+            .publish((events::session_key_revoked(&env),), public_key);
+
         Ok(())
     }
 
@@ -155,7 +211,7 @@ impl AncoreAccount {
 #[cfg(test)]
 mod test {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, Address, Env};
+    use soroban_sdk::{testutils::{Address as _, Events}, Address, Env};
 
     #[test]
     fn test_initialize() {
@@ -168,6 +224,30 @@ mod test {
 
         assert_eq!(client.get_owner(), owner);
         assert_eq!(client.get_nonce(), 0);
+    }
+
+    #[test]
+    fn test_initialize_emits_event() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, AncoreAccount);
+        let client = AncoreAccountClient::new(&env, &contract_id);
+
+        let owner = Address::generate(&env);
+        client.initialize(&owner);
+
+        // Check that an event was published
+        let events_list = env.events().all();
+        assert_eq!(events_list.len(), 1);
+        let (_contract, topics, data) = events_list.get_unchecked(0).clone();
+        assert_eq!(topics.len(), 1);
+        
+        // Convert topic to Symbol for comparison
+        let topic_symbol: soroban_sdk::Symbol = soroban_sdk::FromVal::from_val(&env, &topics.get_unchecked(0));
+        assert_eq!(topic_symbol, events::initialized(&env));
+        
+        // Verify owner address is in the event data
+        let event_owner: Address = soroban_sdk::FromVal::from_val(&env, &data);
+        assert_eq!(event_owner, owner);
     }
 
     #[test]
@@ -189,6 +269,107 @@ mod test {
 
         let session_key = client.get_session_key(&session_pk);
         assert!(session_key.is_some());
+    }
+
+    #[test]
+    fn test_add_session_key_emits_event() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, AncoreAccount);
+        let client = AncoreAccountClient::new(&env, &contract_id);
+
+        let owner = Address::generate(&env);
+        client.initialize(&owner);
+
+        env.mock_all_auths();
+
+        let session_pk = BytesN::from_array(&env, &[1u8; 32]);
+        let expires_at = 1000u64;
+        let permissions = Vec::new(&env);
+
+        client.add_session_key(&session_pk, &expires_at, &permissions);
+
+        // Find the session_key_added event (skip the initialize event)
+        let events_list = env.events().all();
+        assert!(events_list.len() >= 2);
+        let (_contract, topics, data) = events_list.get_unchecked(1).clone();
+        assert_eq!(topics.len(), 1);
+        
+        // Convert topic to Symbol for comparison
+        let topic_symbol: soroban_sdk::Symbol = soroban_sdk::FromVal::from_val(&env, &topics.get_unchecked(0));
+        assert_eq!(topic_symbol, events::session_key_added(&env));
+        
+        // Verify data is (public_key, expires_at)
+        let data_tuple: (BytesN<32>, u64) = soroban_sdk::FromVal::from_val(&env, &data);
+        assert_eq!(data_tuple.0, session_pk);
+        assert_eq!(data_tuple.1, expires_at);
+    }
+
+    #[test]
+    fn test_revoke_session_key_emits_event() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, AncoreAccount);
+        let client = AncoreAccountClient::new(&env, &contract_id);
+
+        let owner = Address::generate(&env);
+        client.initialize(&owner);
+
+        env.mock_all_auths();
+
+        let session_pk = BytesN::from_array(&env, &[1u8; 32]);
+        let expires_at = 1000u64;
+        let permissions = Vec::new(&env);
+
+        client.add_session_key(&session_pk, &expires_at, &permissions);
+        client.revoke_session_key(&session_pk);
+
+        // Find the session_key_revoked event (should be the last event)
+        let events_list = env.events().all();
+        assert!(events_list.len() >= 3);
+        let (_contract, topics, data) = events_list.get_unchecked(2).clone();
+        assert_eq!(topics.len(), 1);
+        
+        // Convert topic to Symbol for comparison
+        let topic_symbol: soroban_sdk::Symbol = soroban_sdk::FromVal::from_val(&env, &topics.get_unchecked(0));
+        assert_eq!(topic_symbol, events::session_key_revoked(&env));
+        
+        // Verify public_key is in the event data
+        let event_pk: BytesN<32> = soroban_sdk::FromVal::from_val(&env, &data);
+        assert_eq!(event_pk, session_pk);
+    }
+
+    #[test]
+    fn test_execute_emits_event() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, AncoreAccount);
+        let client = AncoreAccountClient::new(&env, &contract_id);
+
+        let owner = Address::generate(&env);
+        client.initialize(&owner);
+
+        env.mock_all_auths();
+
+        let to = Address::generate(&env);
+        let function = soroban_sdk::Symbol::new(&env, "transfer");
+        let args = Vec::new(&env);
+
+        client.execute(&to, &function, &args);
+
+        // Find the executed event (skip the initialize event)
+        let events_list = env.events().all();
+        assert!(events_list.len() >= 2);
+        let (_contract, topics, data) = events_list.get_unchecked(1).clone();
+        assert_eq!(topics.len(), 1);
+        
+        // Convert topic to Symbol for comparison
+        let topic_symbol: soroban_sdk::Symbol = soroban_sdk::FromVal::from_val(&env, &topics.get_unchecked(0));
+        assert_eq!(topic_symbol, events::executed(&env));
+        
+        // Verify data is (to, function, nonce)
+        let data_tuple: (Address, soroban_sdk::Symbol, u64) =
+            soroban_sdk::FromVal::from_val(&env, &data);
+        assert_eq!(data_tuple.0, to);
+        assert_eq!(data_tuple.1, function);
+        assert_eq!(data_tuple.2, 0); // First execution, nonce should be 0
     }
 
     #[test]
