@@ -53,3 +53,5 @@ temp/
 *.key
 *.pem
 secrets/
+
+.kiro/

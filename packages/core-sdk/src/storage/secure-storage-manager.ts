@@ -1,7 +1,12 @@
 import { AccountData, EncryptedPayload, SessionKeysData, StorageAdapter } from './types';
 
-function bufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
+interface VerificationContent {
+  marker: "KIRO_VERIFICATION_V1";
+  timestamp: number;
+}
+
+function bufferToBase64(buffer: ArrayBuffer | Uint8Array): string {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
   let binary = '';
   for (let i = 0; i < bytes.byteLength; i++) {
     binary += String.fromCharCode(bytes[i]);
@@ -19,7 +24,7 @@ function base64ToBuffer(base64: string): ArrayBuffer {
 }
 
 export class SecureStorageManager {
-  private baseKey: CryptoKey | null = null;
+  private encryptionKey: CryptoKey | null = null;
   private storage: StorageAdapter;
 
   constructor(storage: StorageAdapter) {
@@ -27,15 +32,111 @@ export class SecureStorageManager {
   }
 
   /**
-   * Derives a temporary key from the password for memory use only.
+   * Unlocks the storage manager with the provided password.
+   * On first run, generates a master salt and verification payload.
+   * On subsequent runs, verifies the password against the stored verification payload.
+   * @param password - The user's password
+   * @returns true if unlock succeeds, false if password is incorrect
    */
-  public async unlock(password: string): Promise<void> {
-    if (this.baseKey) return; // Already unlocked
+  public async unlock(password: string): Promise<boolean> {
+    // Already unlocked - return true immediately
+    if (this.encryptionKey) {
+      return true;
+    }
 
+    // Check if master salt exists (first-run vs subsequent-run)
+    let masterSalt = await this.loadMasterSalt();
+    
+    if (!masterSalt) {
+      // First run: generate and store master salt
+      masterSalt = await this.initializeMasterSalt();
+      
+      // Derive encryption key from password and master salt
+      this.encryptionKey = await this.deriveEncryptionKey(password, masterSalt);
+      
+      // Create and store verification payload
+      await this.createVerificationPayload();
+      
+      return true;
+    } else {
+      // Subsequent run: load master salt and verify password
+      this.encryptionKey = await this.deriveEncryptionKey(password, masterSalt);
+      
+      // Verify password using verification payload
+      const isValid = await this.verifyPassword();
+      
+      return isValid;
+    }
+  }
+
+  /**
+   * Clears the in-memory keys.
+   */
+  public lock(): void {
+    this.encryptionKey = null;
+  }
+
+  public get isUnlocked(): boolean {
+    return this.encryptionKey !== null;
+  }
+
+  /**
+   * Generates a random 16-byte master salt and stores it in the storage adapter.
+   * @returns The generated master salt as a Uint8Array
+   */
+  private async initializeMasterSalt(): Promise<Uint8Array> {
+    const masterSalt = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    const base64Salt = bufferToBase64(masterSalt.buffer);
+    await this.storage.set('master_salt', base64Salt);
+    return masterSalt;
+  }
+
+  /**
+   * Loads the existing master salt from storage.
+   * @returns The master salt as a Uint8Array, or null if it doesn't exist
+   */
+  private async loadMasterSalt(): Promise<Uint8Array | null> {
+    const base64Salt = await this.storage.get('master_salt');
+    if (!base64Salt || typeof base64Salt !== 'string') {
+      return null;
+    }
+    const buffer = base64ToBuffer(base64Salt);
+    return new Uint8Array(buffer);
+  }
+
+  /**
+   * Derives an encryption key from the password and master salt using PBKDF2.
+   * This key is used as a base key for deriving per-payload AES keys.
+   * @param password - The user's password
+   * @param masterSalt - The master salt (16 bytes)
+   * @returns A CryptoKey suitable for deriving per-payload AES-256-GCM keys
+   */
+  private async deriveEncryptionKey(password: string, masterSalt: Uint8Array): Promise<CryptoKey> {
     const encoder = new TextEncoder();
-    this.baseKey = await globalThis.crypto.subtle.importKey(
+    const passwordKey = await globalThis.crypto.subtle.importKey(
       'raw',
       encoder.encode(password),
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits', 'deriveKey']
+    );
+
+    // Derive key material from password + master salt
+    const keyMaterial = await globalThis.crypto.subtle.deriveBits(
+      {
+        name: 'PBKDF2',
+        salt: masterSalt as BufferSource,
+        iterations: 100000,
+        hash: 'SHA-256',
+      },
+      passwordKey,
+      256 // 256 bits = 32 bytes
+    );
+
+    // Import the derived key material as a PBKDF2 key for further derivation
+    return globalThis.crypto.subtle.importKey(
+      'raw',
+      keyMaterial,
       { name: 'PBKDF2' },
       false,
       ['deriveKey']
@@ -43,26 +144,50 @@ export class SecureStorageManager {
   }
 
   /**
-   * Clears the in-memory keys.
+   * Creates and stores a verification payload for password verification.
+   * The verification payload contains known plaintext that can be decrypted
+   * to verify password correctness without exposing sensitive data.
    */
-  public lock(): void {
-    this.baseKey = null;
+  private async createVerificationPayload(): Promise<void> {
+    const verificationContent: VerificationContent = {
+      marker: "KIRO_VERIFICATION_V1",
+      timestamp: Date.now()
+    };
+    
+    const payload = await this.encryptData(JSON.stringify(verificationContent));
+    await this.storage.set('verification_payload', payload);
   }
 
-  public get isUnlocked(): boolean {
-    return this.baseKey !== null;
+  /**
+   * Verifies the password by attempting to decrypt the verification payload.
+   * @returns true if decryption succeeds, false if it fails
+   */
+  private async verifyPassword(): Promise<boolean> {
+    const payload = await this.storage.get('verification_payload') as EncryptedPayload | null;
+    if (!payload) {
+      return false;
+    }
+
+    try {
+      await this.decryptData(payload);
+      return true;
+    } catch {
+      // Decryption failed - wrong password
+      this.encryptionKey = null;
+      return false;
+    }
   }
 
-  private async deriveAesKey(salt: Uint8Array | any): Promise<CryptoKey> {
-    if (!this.baseKey) throw new Error('Storage manager is locked');
+  private async deriveAesKey(salt: Uint8Array): Promise<CryptoKey> {
+    if (!this.encryptionKey) throw new Error('Storage manager is locked');
     return globalThis.crypto.subtle.deriveKey(
       {
         name: 'PBKDF2',
-        salt: salt as any,
+        salt: salt as BufferSource,
         iterations: 100000,
         hash: 'SHA-256',
       },
-      this.baseKey,
+      this.encryptionKey,
       { name: 'AES-GCM', length: 256 },
       false,
       ['encrypt', 'decrypt']
@@ -70,8 +195,8 @@ export class SecureStorageManager {
   }
 
   private async encryptData(plaintext: string): Promise<EncryptedPayload> {
-    const salt = globalThis.crypto.getRandomValues(new Uint8Array(16) as any);
-    const iv = globalThis.crypto.getRandomValues(new Uint8Array(12) as any);
+    const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
     
     const aesKey = await this.deriveAesKey(salt);
     const encoder = new TextEncoder();
@@ -94,16 +219,16 @@ export class SecureStorageManager {
     const iv = base64ToBuffer(payload.iv);
     const ciphertext = base64ToBuffer(payload.data);
 
-    const aesKey = await this.deriveAesKey(new Uint8Array(salt) as any);
+    const aesKey = await this.deriveAesKey(new Uint8Array(salt));
 
     try {
       const decryptedBuffer = await globalThis.crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv: new Uint8Array(iv) as any },
+        { name: 'AES-GCM', iv: new Uint8Array(iv) },
         aesKey,
-        ciphertext as any
+        ciphertext
       );
       return new TextDecoder().decode(decryptedBuffer);
-    } catch (error: any) {
+    } catch {
       throw new Error('Invalid password or corrupted data');
     }
   }
