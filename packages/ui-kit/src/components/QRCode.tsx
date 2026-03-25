@@ -29,7 +29,14 @@ export function QRCode({
       )}
       {...props}
     >
-      <QRCodeSVG value={value} size={size} level="M" includeMargin={false} aria-label={ariaLabel} />
+      <QRCodeSVG
+        value={value}
+        size={size}
+        level="M"
+        includeMargin={false}
+        aria-label={ariaLabel}
+        role="img"
+      />
     </div>
   );
 }
