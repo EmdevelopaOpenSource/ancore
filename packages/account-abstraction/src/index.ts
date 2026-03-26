@@ -18,6 +18,8 @@ export { initialize, type InitializeParams } from './initialize';
 export { revokeSessionKey, type RevokeSessionKeyParams } from './revoke-session-key';
 export type { SessionKey } from './session-key';
 
+export { getOwner, getNonce } from './get-owner-nonce';
+
 export {
   AccountContractError,
   AlreadyInitializedError,
