@@ -33,6 +33,12 @@ export type { AmountInputProps } from './components/amount-input';
 export { AddressDisplay } from './components/address-display';
 export type { AddressDisplayProps } from './components/address-display';
 
+export { QRCode } from './components/QRCode';
+export type { QRCodeProps } from './components/QRCode';
+
+export { Identicon } from './components/Identicon';
+export type { IdenticonProps } from './components/Identicon';
+
 // Form system
 export { Form, FormSubmit, FormError } from './components/Form/Form';
 export type { FormProps, FormSubmitProps, FormErrorProps } from './components/Form/Form';
@@ -40,10 +46,7 @@ export type { FormProps, FormSubmitProps, FormErrorProps } from './components/Fo
 export { AddressInput, AddressInputBase } from './components/Form/AddressInput';
 export type { AddressInputProps, AddressInputBaseProps } from './components/Form/AddressInput';
 
-export {
-  AmountInput as FormAmountInput,
-  AmountInputBase,
-} from './components/Form/AmountInput';
+export { AmountInput as FormAmountInput, AmountInputBase } from './components/Form/AmountInput';
 export type {
   AmountInputProps as FormAmountInputProps,
   AmountInputBaseProps,
