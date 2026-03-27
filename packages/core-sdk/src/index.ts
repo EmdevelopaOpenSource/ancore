@@ -58,3 +58,14 @@ export type {
   AccountData,
   SessionKeysData,
 } from './storage/types';
+
+// Encryption Primitives
+export {
+  deriveKey,
+  encrypt,
+  decrypt,
+  type EncryptedPayload as EncryptionPayload,
+} from './storage/encryption-primitives';
+
+// Backup Export/Import
+export { exportBackup, importBackup, type BackupPayload } from './storage/backup';
