@@ -132,6 +132,80 @@ describe('AncoreClient.executeWithSessionKey', () => {
     expect(executionLayer.executeWithSessionKey).not.toHaveBeenCalled();
   });
 
+  it('rejects invalid target addresses before delegation', async () => {
+    const executionLayer = makeExecutionLayer<{ ok: boolean }>();
+    const client = new AncoreClient({
+      accountContract: new AccountContract(ACCOUNT_CONTRACT_ID),
+      executionLayer,
+    });
+
+    await expect(
+      client.executeWithSessionKey({
+        ...makeParams(),
+        target: 'not-a-contract-id',
+      })
+    ).rejects.toThrow('target must be a valid Stellar address in G... or C... format.');
+  });
+
+  it('rejects empty function names', async () => {
+    const client = new AncoreClient({
+      accountContract: new AccountContract(ACCOUNT_CONTRACT_ID),
+      executionLayer: makeExecutionLayer<{ ok: boolean }>(),
+    });
+
+    await expect(
+      client.executeWithSessionKey({
+        ...makeParams(),
+        function: '   ',
+      })
+    ).rejects.toThrow('function is required.');
+  });
+
+  it('rejects non-array args', async () => {
+    const client = new AncoreClient({
+      accountContract: new AccountContract(ACCOUNT_CONTRACT_ID),
+      executionLayer: makeExecutionLayer<{ ok: boolean }>(),
+    });
+
+    await expect(
+      client.executeWithSessionKey({
+        ...makeParams(),
+        args: 'bad-args' as never,
+      })
+    ).rejects.toThrow('args must be an array of ScVal values.');
+  });
+
+  it('rejects negative expected nonces', async () => {
+    const client = new AncoreClient({
+      accountContract: new AccountContract(ACCOUNT_CONTRACT_ID),
+      executionLayer: makeExecutionLayer<{ ok: boolean }>(),
+    });
+
+    await expect(
+      client.executeWithSessionKey({
+        ...makeParams(),
+        expectedNonce: -1,
+      })
+    ).rejects.toThrow('expectedNonce must be a non-negative integer.');
+  });
+
+  it('rejects missing signer callbacks', async () => {
+    const client = new AncoreClient({
+      accountContract: new AccountContract(ACCOUNT_CONTRACT_ID),
+      executionLayer: makeExecutionLayer<{ ok: boolean }>(),
+    });
+
+    await expect(
+      client.executeWithSessionKey({
+        ...makeParams(),
+        signer: {
+          publicKey: SESSION_PUBLIC_KEY,
+          signAuthEntryXdr: 'not-a-function' as never,
+        },
+      })
+    ).rejects.toThrow('signer.signAuthEntryXdr must be a function.');
+  });
+
   it('maps unauthorized failures deterministically', async () => {
     const executionLayer = makeExecutionLayer<never>(async () => {
       throw new UnauthorizedError('session key cannot call this target');

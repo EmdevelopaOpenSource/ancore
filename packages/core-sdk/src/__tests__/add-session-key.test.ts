@@ -136,4 +136,63 @@ describe('addSessionKey', () => {
 
     expect(mockedAccountAbstraction.__mocked.addSessionKey).not.toHaveBeenCalled();
   });
+
+  it('rejects missing parameter objects', () => {
+    expect(() => addSessionKey({ addSessionKey: jest.fn() }, undefined as never)).toThrow(
+      'addSessionKey requires a parameter object with publicKey, permissions, and expiresAt.'
+    );
+  });
+
+  it('rejects non-array permissions', () => {
+    expect(() =>
+      addSessionKey({ addSessionKey: jest.fn() }, { ...params, permissions: 'read' as never })
+    ).toThrow('addSessionKey requires permissions to be an array.');
+  });
+
+  it('rejects non-finite expiration timestamps', () => {
+    expect(() =>
+      addSessionKey({ addSessionKey: jest.fn() }, { ...params, expiresAt: Number.NaN })
+    ).toThrow('addSessionKey requires expiresAt to be a finite number.');
+  });
+
+  it('preserves existing core-sdk errors', () => {
+    const expected = new SessionKeyManagementError('existing error', 'EXISTING');
+    const writer = {
+      addSessionKey: jest.fn(() => {
+        throw expected;
+      }),
+    };
+
+    expect(() => addSessionKey(writer, params)).toThrow(expected);
+  });
+
+  it('wraps unexpected dependency errors with a stable fallback code', () => {
+    const writer = {
+      addSessionKey: jest.fn(() => {
+        throw new Error('network flake');
+      }),
+    };
+
+    expect(() => addSessionKey(writer, params)).toThrow(
+      expect.objectContaining({
+        code: 'SESSION_KEY_ADD_FAILED',
+        message: 'Failed to add session key: network flake',
+      })
+    );
+  });
+
+  it('wraps non-error throwables with the unknown fallback', () => {
+    const writer = {
+      addSessionKey: jest.fn(() => {
+        throw 'boom';
+      }),
+    };
+
+    expect(() => addSessionKey(writer, params)).toThrow(
+      expect.objectContaining({
+        code: 'SESSION_KEY_ADD_FAILED',
+        message: 'Failed to add session key due to an unknown error.',
+      })
+    );
+  });
 });
