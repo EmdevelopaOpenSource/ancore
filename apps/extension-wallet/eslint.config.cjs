@@ -14,6 +14,7 @@ module.exports = [
       parserOptions: {
         ecmaVersion: 2020,
         sourceType: 'module',
+        ecmaFeatures: { jsx: true },
         ecmaFeatures: {
           jsx: true,
         },
@@ -21,6 +22,7 @@ module.exports = [
       globals: {
         ...globals.browser,
         ...globals.node,
+        ...globals.vitest,
       },
     },
     plugins: {
@@ -32,6 +34,10 @@ module.exports = [
       ...tseslint.configs.recommended.rules,
       ...react.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,
+      'react/react-in-jsx-scope': 'off', // Not needed in React 18+
+      'react/prop-types': 'off', // Disable prop-types rule for TS
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      'no-undef': 'off',
       'no-undef': 'off',
       'react/prop-types': 'off',
       'react/react-in-jsx-scope': 'off',

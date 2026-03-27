@@ -14,6 +14,13 @@ const jestGlobals = {
   jest: 'readonly',
 };
 
+const webcryptoGlobals = {
+  Crypto: 'readonly',
+  CryptoKey: 'readonly',
+  TextEncoder: 'readonly',
+  TextDecoder: 'readonly',
+};
+
 module.exports = [
   js.configs.recommended,
   {
@@ -23,6 +30,9 @@ module.exports = [
       parserOptions: {
         ecmaVersion: 2020,
         sourceType: 'module',
+      },
+      globals: {
+        ...webcryptoGlobals,
       },
     },
     plugins: {
