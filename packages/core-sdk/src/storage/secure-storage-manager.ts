@@ -154,10 +154,36 @@ export class SecureStorageManager {
 
   public async getAccount(): Promise<AccountData | null> {
     this.touch();
+    
+    if (!this.baseKey) {
+      throw new Error('Storage manager is locked');
+    }
+    
     const payload = (await this.storage.get(STORAGE_KEYS.account)) as EncryptedPayload | null;
     if (!payload) return null;
-    const json = await this.decryptData(payload);
-    return JSON.parse(json);
+    
+    // Validate payload structure
+    if (!payload.salt || !payload.iv || !payload.data) {
+      throw new Error('Invalid password or corrupted data');
+    }
+    
+    try {
+      const json = await this.decryptData(payload);
+      const parsed = JSON.parse(json);
+      
+      // Validate that the parsed data has the expected AccountData structure
+      if (!parsed || typeof parsed !== 'object' || !('privateKey' in parsed)) {
+        throw new Error('Invalid password or corrupted data');
+      }
+      
+      return parsed as AccountData;
+    } catch (error) {
+      // Re-throw decryption/parsing errors with a generic message to prevent information leakage
+      if (error instanceof Error && error.message === 'Invalid password or corrupted data') {
+        throw error;
+      }
+      throw new Error('Invalid password or corrupted data');
+    }
   }
 
   public async saveSessionKeys(sessionKeys: SessionKeysData): Promise<void> {
