@@ -114,6 +114,8 @@ const DAY_IN_LEDGERS: u32 = 17280; // 24 hours * 60 min * 60 sec / 5 sec per led
 const INSTANCE_BUMP_AMOUNT: u32 = 30 * DAY_IN_LEDGERS; // 30 days
 const INSTANCE_BUMP_THRESHOLD: u32 = 15 * DAY_IN_LEDGERS; // 15 days
 
+/// Permission bit for execute operations
+const PERMISSION_EXECUTE: u32 = 1;
 /// Permission bit for session-key execute authorization.
 /// Issue #188: Session keys must have this permission to invoke transactions.
 /// Without this bit set, execute() returns InsufficientPermission error.
@@ -799,7 +801,7 @@ mod test {
 
         let expires_at = env.ledger().timestamp() + 10000;
         let mut permissions = Vec::new(&env);
-        permissions.push_back(1); // PERMISSION_EXECUTE
+        permissions.push_back(PERMISSION_EXECUTE);
 
         client.add_session_key(&session_pk, &expires_at, &permissions);
 
@@ -841,6 +843,7 @@ mod test {
         env.ledger().set_timestamp(2000);
         let expires_at = 1000; // Expired relative to 2000
         let mut permissions = Vec::new(&env);
+        permissions.push_back(PERMISSION_EXECUTE);
         permissions.push_back(1);
 
         client.add_session_key(&session_pk, &expires_at, &permissions);
