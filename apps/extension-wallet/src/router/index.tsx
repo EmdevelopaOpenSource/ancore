@@ -1,6 +1,20 @@
+import { Suspense, lazy } from 'react';
 import { useAccountStore } from '../stores/account';
 import { useSessionStore, type AppRoute } from '../stores/session';
 import { useSettingsStore } from '../stores/settings';
+
+// 1. Dynamic Imports (Corrected paths from your build log)
+const HomeScreen = lazy(() => import('../screens/HomeScreen'));
+const ReceiveScreen = lazy(() => import('../screens/ReceiveScreen'));
+const UnlockScreen = lazy(() => import('../screens/UnlockScreen'));
+const TransactionDetail = lazy(() => import('../screens/TransactionDetail'));
+
+// Folder-based components (pointing to the entry screens shown in your log)
+const OnboardingFlow = lazy(() => import('../screens/Onboarding/OnboardingFlow'));
+const SendScreen = lazy(() => import('../screens/Send/SendScreen'));
+const SettingsScreen = lazy(() =>
+  import('../screens/Settings/AboutScreen').then((m) => ({ default: m.AboutScreen }))
+);
 
 export function RouterShell(): JSX.Element {
   const accounts = useAccountStore((s) => s.accounts);
@@ -17,6 +31,21 @@ export function RouterShell(): JSX.Element {
   ];
 
   const activeRoute = routes.find((r) => r.id === session.currentRoute) ?? routes[0];
+
+  // 2. Helper to render the lazy components based on session state
+  const renderActiveScreen = () => {
+    switch (session.currentRoute) {
+      case 'home':
+        return <HomeScreen />;
+      case 'settings':
+        return <SettingsScreen />;
+      case 'accounts':
+        // If there isn't a specific AccountsScreen yet, we fallback to Home
+        return <HomeScreen />;
+      default:
+        return <HomeScreen />;
+    }
+  };
 
   return (
     <div className="mx-auto flex min-h-screen w-[360px] flex-col bg-slate-950 text-slate-50">
@@ -78,6 +107,13 @@ export function RouterShell(): JSX.Element {
             </div>
           </article>
         </section>
+
+        {/* 3. Suspense Boundary for Lazy Loaded Screens */}
+        <Suspense
+          fallback={<div className="p-8 text-center text-cyan-400 animate-pulse">Loading...</div>}
+        >
+          {renderActiveScreen()}
+        </Suspense>
 
         <section className="rounded-3xl border border-dashed border-cyan-400/30 bg-cyan-400/5 p-4 text-sm leading-6 text-cyan-50/90">
           Zustand stores wired with extension storage persistence. Auto-lock and session management

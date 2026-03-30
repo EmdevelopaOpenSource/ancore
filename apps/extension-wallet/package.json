@@ -8,9 +8,11 @@
     "build": "tsc && vite build",
     "test": "pnpm --dir ../.. --filter @ancore/ui-kit build && vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "analyze": "node scripts/analyze-bundle.js"
   },
   "dependencies": {
+    "@ancore/account-abstraction": "workspace:*",
     "@ancore/core-sdk": "workspace:*",
     "@ancore/stellar": "workspace:*",
     "@ancore/types": "workspace:*",
@@ -29,6 +31,7 @@
     "@testing-library/jest-dom": "^6.1.0",
     "@testing-library/react": "^14.0.0",
     "@testing-library/user-event": "^14.5.0",
+    "@types/node": "^25.5.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@types/webextension-polyfill": "^0.12.5",
@@ -42,6 +45,7 @@
     "globals": "^17.4.0",
     "jsdom": "^23.0.0",
     "postcss": "^8.4.0",
+    "rollup-plugin-visualizer": "^7.0.1",
     "tailwindcss": "^3.4.0",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.6.0",
