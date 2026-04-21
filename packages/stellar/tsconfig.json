@@ -6,9 +6,6 @@
     "composite": false,
     "types": ["node", "jest"]
   },
-  "references": [
-    { "path": "../types" }
-  ],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }

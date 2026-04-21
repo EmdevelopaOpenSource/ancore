@@ -1,6 +1,9 @@
 const js = require('@eslint/js');
 const tseslint = require('@typescript-eslint/eslint-plugin');
 const tsparser = require('@typescript-eslint/parser');
+const globals = require('globals');
+
+const parserOptions = { ecmaVersion: 2020, sourceType: 'module' };
 
 module.exports = [
   js.configs.recommended,
@@ -9,14 +12,10 @@ module.exports = [
     ignores: ['**/*.test.ts'],
     languageOptions: {
       parser: tsparser,
-      parserOptions: {
-        ecmaVersion: 2020,
-        sourceType: 'module',
-      },
+      parserOptions,
+      globals: { ...globals.node },
     },
-    plugins: {
-      '@typescript-eslint': tseslint,
-    },
+    plugins: { '@typescript-eslint': tseslint },
     rules: {
       ...tseslint.configs.recommended.rules,
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
