@@ -161,9 +161,21 @@ describe('sendPayment', () => {
   });
 
   describe('validation errors', () => {
+    it('throws BuilderValidationError when params is not an object', async () => {
+      await expect(sendPayment(undefined as never, makeDeps())).rejects.toThrow(
+        BuilderValidationError
+      );
+    });
+
     it('throws BuilderValidationError for empty "to"', async () => {
       await expect(
         sendPayment({ to: '', amount: '1', signer: makeSigner() }, makeDeps())
+      ).rejects.toThrow(BuilderValidationError);
+    });
+
+    it('throws BuilderValidationError for empty amount string', async () => {
+      await expect(
+        sendPayment({ to: DEST, amount: '   ', signer: makeSigner() }, makeDeps())
       ).rejects.toThrow(BuilderValidationError);
     });
 
@@ -190,6 +202,12 @@ describe('sendPayment', () => {
         sendPayment({ to: DEST, amount: '1', signer: null as any }, makeDeps())
       ).rejects.toThrow(BuilderValidationError);
     });
+
+    it('throws BuilderValidationError when signer.sign is not a function', async () => {
+      await expect(
+        sendPayment({ to: DEST, amount: '1', signer: { sign: 'nope' as never } }, makeDeps())
+      ).rejects.toThrow(BuilderValidationError);
+    });
   });
 
   describe('error mapping', () => {
@@ -214,6 +232,15 @@ describe('sendPayment', () => {
       await expect(
         sendPayment({ to: DEST, amount: '1', signer: makeSigner() }, makeDeps())
       ).rejects.toThrow(TransactionSubmissionError);
+    });
+
+    it('re-throws AncoreSdkError from network submission', async () => {
+      const existingError = new SimulationFailedError('already-mapped');
+      stellarMocks.mockSubmit.mockRejectedValue(existingError);
+
+      await expect(
+        sendPayment({ to: DEST, amount: '1', signer: makeSigner() }, makeDeps())
+      ).rejects.toBe(existingError);
     });
   });
 });

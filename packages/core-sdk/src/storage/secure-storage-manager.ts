@@ -1,4 +1,6 @@
 import { AccountData, EncryptedPayload, SessionKeysData, StorageAdapter } from './types';
+import { getSessionKeys as loadSessionKeys } from './get-session-keys';
+import { saveSessionKeys as persistSessionKeys } from './save-session-keys';
 
 interface VerificationContent {
   marker: 'KIRO_VERIFICATION_V1';
@@ -280,14 +282,22 @@ export class SecureStorageManager {
   }
 
   public async saveSessionKeys(sessionKeys: SessionKeysData): Promise<void> {
+    if (!this.encryptionKey) {
+      throw new Error('Storage manager is locked');
+    }
     const payload = await this.encryptData(JSON.stringify(sessionKeys));
     await this.storage.set('sessionKeys', payload);
     this.touch();
   }
 
   public async getSessionKeys(): Promise<SessionKeysData | null> {
+    if (!this.encryptionKey) {
+      throw new Error('Storage manager is locked');
+    }
     const payload = await this.storage.get<EncryptedPayload>('sessionKeys');
-    if (!payload) return null;
+    if (!payload) {
+      return { keys: {} };
+    }
     const json = await this.decryptData(payload);
     this.touch();
     return JSON.parse(json);

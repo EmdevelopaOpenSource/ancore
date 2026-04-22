@@ -23,18 +23,22 @@ declare const chrome: {
 
 const logPrefix = '[ancore-extension/background]';
 
-const manifest = chrome.runtime.getManifest();
+const runtime = (globalThis as { chrome?: { runtime?: any } }).chrome?.runtime;
+const manifest = (runtime?.getManifest?.() as ChromeRuntimeManifest | undefined) ?? {
+  name: 'ancore-extension-wallet',
+  version: '0.0.0',
+};
 
 console.info(`${logPrefix} booted`, {
   name: manifest.name,
   version: manifest.version,
 });
 
-chrome.runtime.onInstalled.addListener((details) => {
+runtime?.onInstalled?.addListener((details: ChromeInstalledDetails) => {
   console.info(`${logPrefix} installed`, { reason: details.reason });
 });
 
-chrome.runtime.onStartup.addListener(() => {
+runtime?.onStartup?.addListener(() => {
   console.info(`${logPrefix} startup`);
 });
 
